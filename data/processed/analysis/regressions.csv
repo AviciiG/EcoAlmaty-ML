@@ -1,0 +1,5 @@
+target,intercept,beta_population,beta_transport,r2
+CO_mg_m3,1.2988,-0.0,0.0029,0.3498
+NO2_mg_m3,0.9165,-0.0,-0.0007,0.5819
+SO2_mg_m3,0.0408,-0.0,-0.0,0.6246
+TSP_mg_m3,-0.1078,0.0,0.0003,0.1139

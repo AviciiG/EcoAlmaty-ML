@@ -1,0 +1,8 @@
+pandas
+numpy
+matplotlib
+scikit-learn
+openpyxl
+xlrd==1.2.0
+torch
+transformers
