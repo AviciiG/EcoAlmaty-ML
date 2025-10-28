@@ -1,0 +1,36 @@
+# --- Исключаем модели ---
+models/
+hub/models-amazon-chronos-t5-large/
+hub/models--amazon--chronos-t5-large/
+*.bin
+*.pt
+*.ckpt
+*.onnx
+*.safetensors
+*.h5
+*.tflite
+*.weights
+*.model
+*.gguf
+*.ggml
+
+# --- Виртуальное окружение ---
+venv/
+.venv/
+env/
+.env
+*.env
+
+# --- Системные и IDE файлы ---
+__pycache__/
+*.pyc
+*.log
+.DS_Store
+.idea/
+.vscode/
+.ipynb_checkpoints/
+
+# --- Прочее ---
+*.zip
+*.tar
+*.tar.gz
