@@ -1,0 +1,11 @@
+fastapi
+uvicorn[standard]
+pydantic
+pydantic-settings
+
+# ML зависимости (если запускаешь апи отдельно от venv проекта)
+numpy
+pandas
+torch
+transformers
+chronos-forecasting

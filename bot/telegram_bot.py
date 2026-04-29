@@ -10,41 +10,35 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 import requests
 
 import sys
-# Добавляем путь к src
-sys.path.append(str(Path(__file__).resolve().parents[1] / "src")) 
-from forecast_core import run_full_forecast, INITIAL_CONDITIONS_YEAR
+from pathlib import Path
+sys.path.append(str(Path(__file__).resolve().parents[1] / "src"))
+from forecast_core import run_full_forecast, START_YEAR
 
 # Заглушка, если plot_utils.py не найден
 try:
     from plot_utils import make_forecast_plots
 except ImportError:
-    # Заглушка, которая сообщает об ошибке, но не падает
     def make_forecast_plots(df, out_dir):
-        print("ВНИМАНИЕ: plot_utils.py не найден или содержит ошибку. Графики не будут сгенерированы.")
+        print("plot_utils not available, skipping chart generation")
         return {}
 
 
 load_dotenv()
 
-# Пути к данным
 POP = "data/processed/almaty_population_all.csv"
 TRN = "data/processed/almaty_transport_yearly.csv"
-AIR = "data/processed/air_yearly_from_monthlies.csv" 
-AIRX = "data/processed/almaty_yearly_from_excels.csv" 
+AIR = "data/processed/air_yearly_from_monthlies.csv"
+AIRX = "data/processed/almaty_yearly_from_excels.csv"
 
-# Ollama настройки (без изменений)
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2")
 
-# --- КОНСТАНТЫ И Вспомогательные функции (обновлены для красивого вывода) ---
-
 HELP_RU = (
-# ... (Текст помощи без изменений) ...
     "🤖 *Привет! Я бот-прогнозист Алматы.*\n\n"
     "*Команды:*\n"
     "  /forecast N — прогноз на N лет (5–100)\n"
-    "    *N* — количество шагов/лет, начиная с 2025 года.\n"
-    "    Например: `/forecast 20` (Прогноз 2025–2045)\n"
+    "    *N* — количество шагов/лет, начиная с 2026 года.\n"
+    "    Например: `/forecast 20` (Прогноз 2026–2046)\n"
     "  /lang ru|en — выбрать язык\n"
     "  /help — эта справка\n\n"
     "*О чём я рассказываю:*\n"
@@ -59,12 +53,11 @@ HELP_RU = (
 )
 
 HELP_EN = (
-# ... (Текст помощи без изменений) ...
     "🤖 *Hi! I'm the Almaty forecasting bot.*\n\n"
     "*Commands:*\n"
     "  /forecast N — forecast for N years (5–100)\n"
-    "    *N* — number of steps/years, starting from 2025.\n"
-    "    Example: `/forecast 20` (Forecast 2025–2045)\n"
+    "    *N* — number of steps/years, starting from 2026.\n"
+    "    Example: `/forecast 20` (Forecast 2026–2046)\n"
     "  /lang ru|en — choose language\n"
     "  /help — this help\n\n"
     "*What I forecast:*\n"
@@ -82,16 +75,13 @@ def get_lang(ctx: ContextTypes.DEFAULT_TYPE) -> str:
     return ctx.user_data.get("lang", "ru")
 
 def _fmt_num(x, metric, lang="ru"):
-    """Улучшенное форматирование чисел."""
     if pd.isna(x) or x is None:
         return "Н/Д" if lang == "ru" else "N/A"
         
     if metric in {"CO_mg_m3", "NO2_mg_m3", "SO2_mg_m3", "TSP_mg_m3"}:
         return f"{x:.3f} мг/м³" if lang == "ru" else f"{x:.3f} mg/m³"
     if metric in {"population_total", "transport_total"}:
-        # Разделитель тысяч
-        formatted = f"{int(round(x)):,}".replace(",", " ")
-        return formatted
+        return f"{int(round(x)):,}".replace(",", " ")
     return f"{x:.2f}"
 
 def _delta_pct(a, b):
@@ -108,15 +98,10 @@ def _trend_emoji(pct):
     elif pct < -0.1: return "↘️"
     else: return "➡️"
 
-# --- Аналитика через Ollama (исправлен расчет end_year_display) ---
-
-def generate_ollama_summary(df: pd.DataFrame, start_year: int, 
+def generate_ollama_summary(df: pd.DataFrame, start_year: int,
                            horizon: int, lang: str) -> str:
-    
-    # Год, для которого берем последнее значение прогноза (2025 + 20 - 1 = 2044)
     end_year_forecast = start_year + horizon - 1
-    # Год, который выводим в тексте (2025 + 20 = 2045)
-    end_year_display = start_year + horizon 
+    end_year_display = start_year + horizon
     
     metrics_data = {}
     for metric in ["population_total", "transport_total", "CO_mg_m3", 
@@ -134,7 +119,6 @@ def generate_ollama_summary(df: pd.DataFrame, start_year: int,
             pct = _delta_pct(v0, v1)
             metrics_data[metric] = {"start": v0, "end": v1, "change_pct": pct}
     
-    # ... (Остальной код для Ollama-запроса без изменений) ...
     if lang == "ru":
         prompt = f"""Ты — высококвалифицированный аналитик, специализирующийся на урбанистике и экологии.
 На основе прогноза для города Алматы на период {start_year}–{end_year_display} напиши красивое, грамотное и детализированное резюме (5-6 предложений).
@@ -168,19 +152,16 @@ Start immediately with the analysis.
             summary = result.get("response", "").strip()
             if summary: return summary
     except Exception as e:
-        print(f"Ollama недоступна или ошибка: {e}")
+        print(f"Ollama unavailable: {e}")
     
     return _fallback_summary(metrics_data, start_year, end_year_display, lang)
 
 def _fallback_summary(metrics_data: Dict, start_year: int, end_year_display: int, lang: str) -> str:
-    """Базовое резюме, если Ollama недоступна. Устранена проблема NaN."""
-    
     pop_end = metrics_data.get('population_total', {}).get('end', 0)
     pop_pct = metrics_data.get('population_total', {}).get('change_pct', None)
     trn_end = metrics_data.get('transport_total', {}).get('end', 0)
     trn_pct = metrics_data.get('transport_total', {}).get('change_pct', None)
 
-    # ... (Остальной код _fallback_summary без изменений) ...
     pollutants_map = {
         "CO_mg_m3": ("Угарный газ (CO)", "Carbon Monoxide (CO)"),
         "NO2_mg_m3": ("Диоксид азота (NO₂)", "Nitrogen Dioxide (NO₂)"),
@@ -263,15 +244,12 @@ def _fallback_summary(metrics_data: Dict, start_year: int, end_year_display: int
         return "\n".join(lines)
 
 
-def detailed_statistics(df: pd.DataFrame, start_year: int, 
+def detailed_statistics(df: pd.DataFrame, start_year: int,
                        horizon: int, lang: str) -> str:
-    """Форматированная таблица с ключевыми показателями. Исправлен вывод года."""
     end_year_forecast = start_year + horizon - 1
-    # КОРРЕКТНЫЙ КОНЕЧНЫЙ ГОД: 2025 + N
-    end_year_display = start_year + horizon 
+    end_year_display = start_year + horizon
     
     metric_names = {
-    # ... (Остальной код metric_names без изменений) ...
         "ru": {
             "population_total": "👥 Население",
             "transport_total": "🚗 Транспорт",
@@ -307,7 +285,6 @@ def detailed_statistics(df: pd.DataFrame, start_year: int,
             
             name = metric_names[lang].get(metric, metric)
             
-            # Устранение NaN для вывода %
             if pct is None:
                 pct_display = "Н/Д" if lang == "ru" else "N/A"
                 emoji = "➡️"
@@ -331,21 +308,17 @@ def detailed_statistics(df: pd.DataFrame, start_year: int,
     return header + "\n".join(lines)
 
 
-# --- Команды Telegram (обновлен вывод в forecast_cmd) ---
 
 async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-# ... (Код start без изменений) ...
     ctx.user_data["lang"] = "ru"
     await update.message.reply_text(HELP_RU, parse_mode=ParseMode.MARKDOWN)
 
 async def help_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-# ... (Код help_cmd без изменений) ...
     lang = get_lang(ctx)
     text = HELP_RU if lang == "ru" else HELP_EN
     await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
 
 async def lang_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-# ... (Код lang_cmd без изменений) ...
     if not ctx.args or ctx.args[0].lower() not in ("ru", "en"):
         await update.message.reply_text(
             "Используй: /lang ru или /lang en\n"
@@ -358,7 +331,8 @@ async def lang_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 async def forecast_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    """Команда /forecast - основная функция прогнозирования с корректным выводом года."""
+    if update.message is None:
+        return
     lang = get_lang(ctx)
     
     try:
@@ -376,9 +350,8 @@ async def forecast_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             return
         
         actual_horizon = horizon
-        start_point = INITIAL_CONDITIONS_YEAR # 2025
-        # КРИТИЧЕСКИЙ ФИКС: Конечный год = 2025 + N (например, 2025 + 20 = 2045)
-        end_year_display = start_point + actual_horizon 
+        start_point = START_YEAR
+        end_year_display = start_point + actual_horizon
         
         wait_msg = (f"⏳ *Строю прогноз на период {start_point}–{end_year_display}* ({actual_horizon} лет)...\n"
                    f"Это займёт 1-2 минуты." if lang == "ru" 
@@ -386,10 +359,8 @@ async def forecast_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                    f"This will take 1-2 minutes.")
         status_message = await update.message.reply_text(wait_msg, parse_mode=ParseMode.MARKDOWN)
         
-        # Запуск прогноза
         df = run_full_forecast(POP, TRN, AIR, AIRX, horizon=actual_horizon)
         
-        # Сохранение результатов
         out_dir = Path("data/processed")
         out_dir.mkdir(parents=True, exist_ok=True)
         out_csv = out_dir / "forecasts_yearly.csv"
@@ -400,10 +371,8 @@ async def forecast_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             else "✅ Forecast ready! Generating *nice* charts..."
         , parse_mode=ParseMode.MARKDOWN)
         
-        # Генерация и отправка графиков
         plot_paths = make_forecast_plots(df, out_dir=str(out_dir / "plots"))
         
-        # ... (Код отправки графиков без изменений) ...
         for metric, path in plot_paths.items():
             if Path(path).exists():
                 caption_map = {
@@ -415,15 +384,11 @@ async def forecast_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                     "TSP_mg_m3": f"**Пыль (TSP) ({start_point}–{end_year_display})**" if lang == "ru" else f"**Particulate Matter (TSP) ({start_point}–{end_year_display})**",
                 }
                 caption = caption_map.get(metric, metric)
-                # Отправляем фото с Markdown в подписи
                 await update.message.reply_photo(photo=open(path, 'rb'), caption=caption, parse_mode=ParseMode.MARKDOWN)
 
-        
-        # Детальная статистика
         stats = detailed_statistics(df, start_point, actual_horizon, lang)
         await update.message.reply_text(stats, parse_mode=ParseMode.MARKDOWN)
         
-        # Расширенное Аналитическое резюме
         summary = generate_ollama_summary(df, start_point, actual_horizon, lang)
         
         final_msg = f"🎯 *АНАЛИТИЧЕСКОЕ РЕЗЮМЕ:* 👇\n\n{summary}" if lang == "ru" else f"🎯 *ANALYTICAL SUMMARY:* 👇\n\n{summary}"
@@ -436,12 +401,15 @@ async def forecast_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         msg = "Горизонт должен быть числом от 5 до 100" if lang == "ru" else "Horizon must be a number between 5 and 100"
         await update.message.reply_text(msg)
     except Exception as e:
-        error_msg = f"❌ {'Критическая ошибка' if lang == 'ru' else 'Critical Error'}: {str(e)}"
-        await update.message.reply_text(error_msg)
         print(f"Forecast error: {e}")
+        if update.message:
+            await update.message.reply_text(
+                f"{'Критическая ошибка' if lang == 'ru' else 'Critical error'}: {e}"
+            )
 
 async def fallback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-# ... (Код fallback без изменений) ...
+    if update.message is None:
+        return
     lang = get_lang(ctx)
     txt = (update.message.text or "").lower()
     
@@ -463,10 +431,9 @@ async def fallback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(msg)
 
 def main():
-# ... (Код main без изменений) ...
     token = os.getenv("TELEGRAM_TOKEN")
     if not token:
-        print("❌ Ошибка: TELEGRAM_TOKEN не найден в .env файле")
+        print("ERROR: TELEGRAM_TOKEN not set")
         return
     
     app = Application.builder().token(token).build()
@@ -477,10 +444,9 @@ def main():
     app.add_handler(CommandHandler("forecast", forecast_cmd))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, fallback))
     
-    print("🤖 Бот запущен и ожидает команды...")
-    print("⚡ Нажми Ctrl+C для остановки")
-    
+    print("Bot started, polling.")
     app.run_polling()
+
 
 if __name__ == '__main__':
     main()
