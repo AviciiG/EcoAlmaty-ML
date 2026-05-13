@@ -1,4 +1,10 @@
-# Основные библиотеки для анализа данных и ML
+# Web API
+fastapi
+uvicorn[standard]
+pydantic
+pydantic-settings
+
+# ML
 pandas
 numpy
 matplotlib
@@ -9,7 +15,7 @@ torch
 transformers
 chronos-forecasting
 
-# Библиотеки для работы бота
+# Bot
 python-telegram-bot
 python-dotenv
 requests
