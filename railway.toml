@@ -1,6 +1,7 @@
 [build]
 builder = "nixpacks"
+installCommand = "pip install -r forecast-api/requirements.txt"
 
 [deploy]
-startCommand = "cd forecast-api && uvicorn src.main:app --host 0.0.0.0 --port $PORT"
+startCommand = "cd forecast-api && python -m uvicorn src.main:app --host 0.0.0.0 --port $PORT"
 restartPolicyType = "on_failure"
