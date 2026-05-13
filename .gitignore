@@ -1,5 +1,8 @@
 # --- Исключаем модели ---
 models/
+!forecast-api/src/models/
+!forecast-api/src/models/__init__.py
+!forecast-api/src/models/schemas.py
 hub/models-amazon-chronos-t5-large/
 hub/models--amazon--chronos-t5-large/
 *.bin
